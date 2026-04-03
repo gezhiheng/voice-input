@@ -70,6 +70,10 @@ struct AppSettings: Equatable, Codable {
     var llmRefinementMode: LLMRefinementMode
     var llmConfiguration: LLMConfiguration
 
+    var canUseStructuredRewrite: Bool {
+        llmEnabled && llmConfiguration.isConfigured
+    }
+
     static let `default` = AppSettings(
         selectedLanguage: .defaultLanguage,
         llmEnabled: false,

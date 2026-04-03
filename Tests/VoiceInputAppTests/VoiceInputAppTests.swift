@@ -8,6 +8,44 @@ func defaultLanguageIsSimplifiedChinese() {
     #expect(AppSettings.default.llmRefinementMode == .conservativeCorrection)
     #expect(AppSettings.default.llmConfiguration.baseURL == LLMConfiguration.bailianBaseURL)
     #expect(AppSettings.default.llmConfiguration.model == LLMConfiguration.bailianModel)
+    #expect(!AppSettings.default.canUseStructuredRewrite)
+}
+
+@Test
+func structuredRewriteAvailabilityRequiresEnabledAndConfiguredLLM() {
+    let configured = LLMConfiguration(
+        baseURL: LLMConfiguration.bailianBaseURL,
+        apiKey: "test-key",
+        model: LLMConfiguration.bailianModel
+    )
+
+    let disabled = AppSettings(
+        selectedLanguage: .simplifiedChinese,
+        llmEnabled: false,
+        llmRefinementMode: .conservativeCorrection,
+        llmConfiguration: configured
+    )
+    #expect(!disabled.canUseStructuredRewrite)
+
+    let missingAPIKey = AppSettings(
+        selectedLanguage: .simplifiedChinese,
+        llmEnabled: true,
+        llmRefinementMode: .conservativeCorrection,
+        llmConfiguration: .init(
+            baseURL: LLMConfiguration.bailianBaseURL,
+            apiKey: "",
+            model: LLMConfiguration.bailianModel
+        )
+    )
+    #expect(!missingAPIKey.canUseStructuredRewrite)
+
+    let enabledAndConfigured = AppSettings(
+        selectedLanguage: .simplifiedChinese,
+        llmEnabled: true,
+        llmRefinementMode: .conservativeCorrection,
+        llmConfiguration: configured
+    )
+    #expect(enabledAndConfigured.canUseStructuredRewrite)
 }
 
 @Test

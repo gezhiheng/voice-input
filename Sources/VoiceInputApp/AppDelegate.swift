@@ -3,7 +3,7 @@ import Combine
 import QuartzCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let settingsStore = SettingsStore()
     private let permissionsCoordinator = PermissionsCoordinator()
@@ -42,11 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let menu = NSMenu()
     private var cancellables: Set<AnyCancellable> = []
     private var currentStatusSymbolName: String?
-
-    private var canUseStructuredRewrite: Bool {
-        let settings = settingsStore.settings
-        return settings.llmEnabled && settings.llmConfiguration.isConfigured
-    }
+    private weak var structuredRewriteMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -155,8 +151,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         structuredRewriteItem.target = self
         structuredRewriteItem.keyEquivalentModifierMask = [.command]
-        structuredRewriteItem.isEnabled = canUseStructuredRewrite
-        structuredRewriteItem.state = canUseStructuredRewrite && settingsStore.settings.llmRefinementMode == .structuredRewrite ? .on : .off
+        structuredRewriteMenuItem = structuredRewriteItem
+        syncStructuredRewriteMenuItem()
         menu.addItem(structuredRewriteItem)
 
         let permissionsItem = NSMenuItem(
@@ -176,6 +172,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         quitItem.target = self
         menu.addItem(quitItem)
+    }
+
+    private func syncStructuredRewriteMenuItem() {
+        guard let structuredRewriteMenuItem else {
+            return
+        }
+
+        let canUseStructuredRewrite = settingsStore.settings.canUseStructuredRewrite
+        structuredRewriteMenuItem.isEnabled = canUseStructuredRewrite
+        structuredRewriteMenuItem.state = canUseStructuredRewrite && settingsStore.settings.llmRefinementMode == .structuredRewrite
+            ? .on
+            : .off
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(toggleStructuredRewrite(_:)) else {
+            return true
+        }
+
+        syncStructuredRewriteMenuItem()
+        return settingsStore.settings.canUseStructuredRewrite
     }
 
     private func updateStatusItemIcon(for phase: RecordingPhase) {
@@ -264,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc
     private func toggleStructuredRewrite(_ sender: NSMenuItem) {
-        guard canUseStructuredRewrite else {
+        guard settingsStore.settings.canUseStructuredRewrite else {
             return
         }
 
@@ -272,6 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settingsStore.updateLLMRefinementMode(
             isEnablingStructuredRewrite ? .structuredRewrite : .conservativeCorrection
         )
+        syncStructuredRewriteMenuItem()
     }
 
     @objc
