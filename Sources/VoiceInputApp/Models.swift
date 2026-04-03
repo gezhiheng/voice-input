@@ -30,6 +30,9 @@ enum SupportedLanguage: String, CaseIterable, Codable {
 }
 
 struct LLMConfiguration: Equatable, Codable {
+    static let bailianBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    static let bailianModel = "qwen-plus"
+
     var baseURL: String
     var apiKey: String
     var model: String
@@ -39,17 +42,39 @@ struct LLMConfiguration: Equatable, Codable {
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    static let recommended = LLMConfiguration(
+        baseURL: bailianBaseURL,
+        apiKey: "",
+        model: bailianModel
+    )
+}
+
+enum LLMRefinementMode: String, CaseIterable, Codable {
+    case conservativeCorrection
+    case structuredRewrite
+
+    var menuTitle: String {
+        switch self {
+        case .conservativeCorrection:
+            "Conservative Correction"
+        case .structuredRewrite:
+            "Structured Rewrite"
+        }
+    }
 }
 
 struct AppSettings: Equatable, Codable {
     var selectedLanguage: SupportedLanguage
     var llmEnabled: Bool
+    var llmRefinementMode: LLMRefinementMode
     var llmConfiguration: LLMConfiguration
 
     static let `default` = AppSettings(
         selectedLanguage: .defaultLanguage,
         llmEnabled: false,
-        llmConfiguration: LLMConfiguration(baseURL: "", apiKey: "", model: "")
+        llmRefinementMode: .conservativeCorrection,
+        llmConfiguration: .recommended
     )
 }
 
@@ -113,20 +138,24 @@ protocol SpeechTranscribing: AnyObject {
 }
 
 protocol TextRefining {
-    func refine(_ text: String, configuration: LLMConfiguration) async throws -> String
+    func refine(
+        _ text: String,
+        configuration: LLMConfiguration,
+        mode: LLMRefinementMode
+    ) async throws -> String
     func testConnection(configuration: LLMConfiguration) async throws
 }
 
 protocol ClipboardManaging {
-    func snapshot() -> PasteboardSnapshot
-    func replaceContents(with text: String) throws
-    func restore(from snapshot: PasteboardSnapshot)
+    @MainActor func snapshot() -> PasteboardSnapshot
+    @MainActor func replaceContents(with text: String) throws
+    @MainActor func restore(from snapshot: PasteboardSnapshot)
 }
 
 protocol InputSourceManaging {
-    func currentInputSource() -> InputSourceDescriptor?
-    func asciiCapableInputSource() -> InputSourceDescriptor?
-    func selectInputSource(withID id: String) -> Bool
+    @MainActor func currentInputSource() -> InputSourceDescriptor?
+    @MainActor func asciiCapableInputSource() -> InputSourceDescriptor?
+    @MainActor func selectInputSource(withID id: String) -> Bool
 }
 
 enum VoiceInputError: LocalizedError {

@@ -1,6 +1,6 @@
 # VoiceInput (macOS menu bar app)
 
-VoiceInput is a macOS menu bar app that records speech while you hold **Fn**, transcribes it via Apple Speech, optionally refines the transcript via an OpenAI-compatible LLM endpoint, and then pastes the final text into the active app.
+VoiceInput is a macOS menu bar app that records speech while you hold **Fn**, transcribes it via Apple Speech, optionally refines the transcript via Alibaba Bailian `qwen-plus` (or another OpenAI-compatible LLM endpoint), and then pastes the final text into the active app.
 
 ## Requirements
 
@@ -16,6 +16,22 @@ VoiceInput is a macOS menu bar app that records speech while you hold **Fn**, tr
 swift build
 swift test
 ```
+
+### Versioned release
+
+The repository uses [`VERSION`](VERSION) as the single source of truth for app and release versions.
+
+```bash
+make release
+```
+
+This will:
+
+- build the `.app`
+- package it as `dist/VoiceInput-vX.Y.Z.zip`
+- create or update the matching Git tag and GitHub release
+
+On GitHub, `.github/workflows/release.yml` runs the same script automatically when `VERSION` changes on `main`.
 
 ### Run as a real `.app` bundle (recommended)
 
@@ -47,6 +63,7 @@ make clean
 - Use the menu bar icon to:
   - pick a language for the Speech recognizer
   - enable/disable LLM refinement and open LLM settings
+  - toggle `Structured Rewrite` with `Command+S` from the top-level menu when you want the LLM to summarize and reorganize a long spoken draft
   - open the Permissions window
 
 ## Permissions (important for dev)
@@ -64,7 +81,9 @@ When validating permission strings / prompts, use `make run` (or `make build` + 
 
 ## LLM refinement (optional)
 
-When enabled, VoiceInput sends the raw transcript to an **OpenAI-compatible** `chat/completions` endpoint with a conservative “correct recognition errors only” system prompt.
+When enabled, VoiceInput sends the raw transcript to an **OpenAI-compatible** `chat/completions` endpoint with a conservative “correct recognition errors only” prompt tuned for Alibaba Bailian `qwen-plus`.
+
+If `Structured Rewrite` is enabled from the top-level menu, VoiceInput switches to a different prompt that summarizes, distills, and reorganizes long spoken text into a clearer structure. This option is only selectable when LLM refinement is enabled and fully configured.
 
 Configure via the menu bar:
 
@@ -73,9 +92,9 @@ Configure via the menu bar:
 
 Settings:
 
-- **API Base URL**: accepts either a base like `https://api.openai.com` or a full path like `.../v1/chat/completions` (the app normalizes it)
+- **API Base URL**: defaults to Alibaba Bailian `https://dashscope.aliyuncs.com/compatible-mode/v1`, and also accepts a full path like `.../v1/chat/completions` (the app normalizes it)
 - **API Key**: bearer token
-- **Model**: e.g. `gpt-4.1-mini` (or any model your endpoint supports)
+- **Model**: defaults to `qwen-plus` (or any model your endpoint supports)
 
 ## Project layout
 
@@ -83,4 +102,3 @@ Settings:
 - `Tests/VoiceInputAppTests/VoiceInputAppTests.swift`: `Testing`-based unit tests
 - `Package.swift`: SwiftPM configuration
 - `Makefile`: app bundling + signing into `dist/`
-

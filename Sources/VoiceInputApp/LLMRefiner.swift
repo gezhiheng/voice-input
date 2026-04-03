@@ -5,15 +5,6 @@ final class LLMRefiner: TextRefining {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    private let systemPrompt = """
-    You are correcting speech recognition output. Be extremely conservative.
-    Only fix obvious recognition errors. Keep wording, order, punctuation, spacing, and line breaks whenever they already look correct.
-    Focus on obvious homophone mistakes, especially Chinese homophones and English technical terms misrecognized as Chinese characters.
-    Examples: 配森 -> Python, 杰森 -> JSON, type script in Chinese context -> TypeScript only when clearly intended.
-    Never rewrite for style. Never summarize. Never omit content. If the text already looks correct, return it unchanged.
-    Output only the corrected text.
-    """
-
     init(session: URLSession? = nil) {
         if let session {
             self.session = session
@@ -25,10 +16,15 @@ final class LLMRefiner: TextRefining {
         }
     }
 
-    func refine(_ text: String, configuration: LLMConfiguration) async throws -> String {
+    func refine(
+        _ text: String,
+        configuration: LLMConfiguration,
+        mode: LLMRefinementMode
+    ) async throws -> String {
         let response = try await complete(
             userText: text,
-            configuration: configuration
+            configuration: configuration,
+            mode: mode
         )
 
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,8 +37,9 @@ final class LLMRefiner: TextRefining {
 
     func testConnection(configuration: LLMConfiguration) async throws {
         _ = try await complete(
-            userText: "配森 和 杰森",
-            configuration: configuration
+            userText: "我在改配森服务的杰森配置",
+            configuration: configuration,
+            mode: .conservativeCorrection
         )
     }
 
@@ -79,7 +76,11 @@ final class LLMRefiner: TextRefining {
         path.split(separator: "/").last == "v1"
     }
 
-    private func complete(userText: String, configuration: LLMConfiguration) async throws -> String {
+    private func complete(
+        userText: String,
+        configuration: LLMConfiguration,
+        mode: LLMRefinementMode
+    ) async throws -> String {
         guard configuration.isConfigured else {
             throw VoiceInputError.message("LLM refinement is not configured.")
         }
@@ -89,9 +90,11 @@ final class LLMRefiner: TextRefining {
         let body = ChatCompletionRequest(
             model: configuration.model,
             temperature: 0,
+            seed: 1234,
+            enableThinking: false,
             messages: [
-                .init(role: "system", content: systemPrompt),
-                .init(role: "user", content: userText)
+                .init(role: "system", content: systemPrompt(for: mode)),
+                .init(role: "user", content: userPrompt(for: userText, mode: mode))
             ]
         )
 
@@ -115,6 +118,63 @@ final class LLMRefiner: TextRefining {
 
         return content
     }
+
+    private func systemPrompt(for mode: LLMRefinementMode) -> String {
+        switch mode {
+        case .conservativeCorrection:
+            """
+            你是语音识别纠错器。
+            你的唯一任务是修正语音转写文本中的明显识别错误，并返回修正后的文本。
+
+            请严格遵守以下规则：
+            1. 只修正明显错误，不要润色，不要改写，不要扩写，不要总结，不要补充省略信息。
+            2. 保持原文的语序、句式、语气、标点、空格和换行；如果原文看起来已经正确，就原样返回。
+            3. 优先修正中文同音字、近音词、英文技术词误识别、中英混说时的术语错误。
+            4. 如果无法确定，不要猜，保留原文。
+            5. 输出只能是修正后的文本本身，不要添加解释、前缀、引号或代码块。
+
+            参考示例：
+            - 配森 -> Python
+            - 杰森 -> JSON
+            - type script -> TypeScript（仅在上下文明确时）
+            """
+        case .structuredRewrite:
+            """
+            你是口述内容整理助手。
+            你的任务是将用户的一大段口述内容整理得更有条理、更易读、更适合直接发送或记录。
+
+            请严格遵守以下规则：
+            1. 保留原意和关键信息，不要凭空添加事实。
+            2. 允许删除明显重复、口头禅和冗余表达，但不要丢失核心内容。
+            3. 优先重组结构、补足必要标点、断句和分段，让内容更清晰。
+            4. 如果原文明显是在罗列事项，可以整理成短段落或项目符号；否则优先输出自然流畅的短段落。
+            5. 输出只能是整理后的正文，不要解释你做了什么，不要加标题前缀，不要使用代码块。
+            """
+        }
+    }
+
+    private func userPrompt(for text: String, mode: LLMRefinementMode) -> String {
+        switch mode {
+        case .conservativeCorrection:
+            """
+            以下内容来自 macOS 语音输入的原始转写，请只修正明显识别错误。
+            如果不确定，请保留原文。
+            只返回修正后的文本。
+
+            原始转写：
+            \(text)
+            """
+        case .structuredRewrite:
+            """
+            以下内容来自 macOS 语音输入的原始转写，请总结、提炼并优化表达，使其更有条理、更适合直接使用。
+            保留原意和关键信息，不要凭空补充事实。
+            只返回整理后的正文。
+
+            原始转写：
+            \(text)
+            """
+        }
+    }
 }
 
 private extension LLMRefiner {
@@ -126,7 +186,17 @@ private extension LLMRefiner {
 
         var model: String
         var temperature: Double
+        var seed: Int
+        var enableThinking: Bool
         var messages: [Message]
+
+        enum CodingKeys: String, CodingKey {
+            case model
+            case temperature
+            case seed
+            case enableThinking = "enable_thinking"
+            case messages
+        }
     }
 
     struct ChatCompletionResponse: Decodable {

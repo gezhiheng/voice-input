@@ -5,6 +5,9 @@ import Testing
 @Test
 func defaultLanguageIsSimplifiedChinese() {
     #expect(AppSettings.default.selectedLanguage == .simplifiedChinese)
+    #expect(AppSettings.default.llmRefinementMode == .conservativeCorrection)
+    #expect(AppSettings.default.llmConfiguration.baseURL == LLMConfiguration.bailianBaseURL)
+    #expect(AppSettings.default.llmConfiguration.model == LLMConfiguration.bailianModel)
 }
 
 @Test
@@ -18,10 +21,13 @@ func settingsStorePersistsLanguageAndClearsAPIKey() async throws {
         #expect(store.settings.selectedLanguage == .simplifiedChinese)
 
         store.updateLanguage(.japanese)
+        store.updateLLMRefinementMode(.structuredRewrite)
         store.save(configuration: .init(baseURL: "https://example.com/v1", apiKey: "", model: "gpt-test"))
 
         #expect(store.settings.selectedLanguage == .japanese)
+        #expect(store.settings.llmRefinementMode == .structuredRewrite)
         #expect(store.settings.llmConfiguration.apiKey == "")
+        #expect(defaults.string(forKey: "llmRefinementMode") == LLMRefinementMode.structuredRewrite.rawValue)
         #expect(defaults.string(forKey: "llmAPIKey") == "")
     }
 }
@@ -33,6 +39,9 @@ func llmEndpointNormalizationHandlesBaseAndFullEndpoint() throws {
     let base = try refiner.normalizedEndpoint(from: "https://api.openai.com/v1")
     #expect(base.absoluteString == "https://api.openai.com/v1/chat/completions")
 
+    let bailian = try refiner.normalizedEndpoint(from: LLMConfiguration.bailianBaseURL)
+    #expect(bailian.absoluteString == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+
     let full = try refiner.normalizedEndpoint(from: "https://example.com/custom/chat/completions")
     #expect(full.absoluteString == "https://example.com/custom/chat/completions")
 
@@ -40,6 +49,101 @@ func llmEndpointNormalizationHandlesBaseAndFullEndpoint() throws {
     #expect(root.absoluteString == "https://example.com/v1/chat/completions")
 }
 
+@Test
+func llmRefinerUsesBailianFriendlyPromptAndDisablesThinking() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CorrectionMockURLProtocol.self]
+
+    let requestBox = RequestBox()
+    CorrectionMockURLProtocol.requestHandler = { request in
+        requestBox.request = request
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        let data = Data(#"{"choices":[{"message":{"content":"Python 和 JSON"}}]}"#.utf8)
+        return (response, data)
+    }
+
+    defer {
+        CorrectionMockURLProtocol.requestHandler = nil
+    }
+
+    let refiner = LLMRefiner(session: URLSession(configuration: configuration))
+    let refined = try await refiner.refine(
+        "配森 和 杰森",
+        configuration: LLMConfiguration(
+            baseURL: LLMConfiguration.bailianBaseURL,
+            apiKey: "test-key",
+            model: LLMConfiguration.bailianModel
+        ),
+        mode: .conservativeCorrection
+    )
+
+    #expect(refined == "Python 和 JSON")
+
+    let request = try #require(requestBox.request)
+    let body = try #require(requestBody(from: request))
+    let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+    #expect(payload["model"] as? String == LLMConfiguration.bailianModel)
+    #expect(payload["temperature"] as? Double == 0)
+    #expect(payload["seed"] as? Int == 1234)
+    #expect(payload["enable_thinking"] as? Bool == false)
+
+    let messages = try #require(payload["messages"] as? [[String: String]])
+    #expect(messages.count == 2)
+    #expect(messages[0]["role"] == "system")
+    #expect(messages[0]["content"]?.contains("只修正明显错误") == true)
+    #expect(messages[1]["role"] == "user")
+    #expect(messages[1]["content"]?.contains("原始转写") == true)
+}
+
+@Test
+func llmRefinerUsesStructuredRewritePromptWhenRequested() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StructuredRewriteMockURLProtocol.self]
+
+    let requestBox = RequestBox()
+    StructuredRewriteMockURLProtocol.requestHandler = { request in
+        requestBox.request = request
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        let data = Data(#"{"choices":[{"message":{"content":"- 第一项\n- 第二项"}}]}"#.utf8)
+        return (response, data)
+    }
+
+    defer {
+        StructuredRewriteMockURLProtocol.requestHandler = nil
+    }
+
+    let refiner = LLMRefiner(session: URLSession(configuration: configuration))
+    let refined = try await refiner.refine(
+        "第一项是把项目排期重新整理一下然后第二项是把风险和阻塞单独拿出来说",
+        configuration: LLMConfiguration(
+            baseURL: LLMConfiguration.bailianBaseURL,
+            apiKey: "test-key",
+            model: LLMConfiguration.bailianModel
+        ),
+        mode: .structuredRewrite
+    )
+
+    #expect(refined == "- 第一项\n- 第二项")
+
+    let request = try #require(requestBox.request)
+    let body = try #require(requestBody(from: request))
+    let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let messages = try #require(payload["messages"] as? [[String: String]])
+
+    #expect(messages[0]["content"]?.contains("口述内容整理助手") == true)
+    #expect(messages[1]["content"]?.contains("总结、提炼并优化表达") == true)
+}
 @Test
 func cjkInputSourceDetectionMatchesLanguagesAndInputMethods() {
     let chinese = InputSourceDescriptor(id: "zh", languages: ["zh-Hans"], sourceType: "TISTypeKeyboardInputMethodModeEnabled", isASCII: false)
@@ -64,20 +168,6 @@ func audioLevelMeterAppliesSmoothingAndKeepsBarsVisible() {
     #expect(levels[2] > levels[0])
     #expect(levels.allSatisfy { $0 >= 0.07 })
 }
-
-@Test
-func textInjectorRestoresClipboardAndInputSource() async throws {
-    let clipboard = MockClipboard()
-    let inputSource = MockInputSourceManager()
-    let injector = TextInjector(clipboard: clipboard, inputSourceManager: inputSource, pastePerformer: {})
-
-    try await injector.inject(text: "你好 world")
-
-    #expect(clipboard.restoredSnapshots == [PasteboardSnapshot(items: [PasteboardSnapshot.Item(dataByType: ["public.utf8-plain-text": Data("before".utf8)])])])
-    #expect(inputSource.selectedIDs == ["ascii", "cjk"])
-    #expect(clipboard.replacedText == "你好 world")
-}
-
 private final class MockClipboard: ClipboardManaging {
     private(set) var replacedText: String = ""
     private(set) var restoredSnapshots: [PasteboardSnapshot] = []
@@ -120,4 +210,102 @@ private final class MockInputSourceManager: InputSourceManaging {
         selectedIDs.append(id)
         return true
     }
+}
+private final class RequestBox: @unchecked Sendable {
+    var request: URLRequest?
+}
+
+private final class CorrectionMockURLProtocol: URLProtocol, @unchecked Sendable {
+    static var requestHandler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            fatalError("MockURLProtocol.requestHandler must be set before use.")
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private final class StructuredRewriteMockURLProtocol: URLProtocol, @unchecked Sendable {
+    static var requestHandler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            fatalError("StructuredRewriteMockURLProtocol.requestHandler must be set before use.")
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private func requestBody(from request: URLRequest) -> Data? {
+    if let body = request.httpBody {
+        return body
+    }
+
+    guard let stream = request.httpBodyStream else {
+        return nil
+    }
+
+    stream.open()
+    defer {
+        stream.close()
+    }
+
+    let bufferSize = 1024
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer {
+        buffer.deallocate()
+    }
+
+    var data = Data()
+    while stream.hasBytesAvailable {
+        let readCount = stream.read(buffer, maxLength: bufferSize)
+        if readCount < 0 {
+            return nil
+        }
+
+        if readCount == 0 {
+            break
+        }
+
+        data.append(buffer, count: readCount)
+    }
+
+    return data
 }

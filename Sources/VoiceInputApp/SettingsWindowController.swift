@@ -39,6 +39,12 @@ final class SettingsWindowViewModel: ObservableObject {
         statusMessage = "Saved."
     }
 
+    func applyBailianDefaults() {
+        baseURL = LLMConfiguration.bailianBaseURL
+        model = LLMConfiguration.bailianModel
+        statusMessage = "Alibaba Bailian defaults restored."
+    }
+
     func test() {
         let configuration = LLMConfiguration(
             baseURL: baseURL.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -80,7 +86,7 @@ final class SettingsWindowController: NSWindowController {
         let rootView = SettingsRootView(viewModel: viewModel)
         let hostingView = NSHostingView(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 280),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 320),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -111,7 +117,7 @@ private struct SettingsRootView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Configure the OpenAI-compatible endpoint used for conservative transcript correction.")
+            Text("Alibaba Bailian is preconfigured for transcript correction. Fill in your Bailian API Key, or override the endpoint and model if you need another OpenAI-compatible service.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
 
@@ -119,7 +125,7 @@ private struct SettingsRootView: View {
                 GridRow {
                     Text("API Base URL")
                         .frame(width: 96, alignment: .leading)
-                    TextField("https://api.openai.com/v1", text: $viewModel.baseURL)
+                    TextField(LLMConfiguration.bailianBaseURL, text: $viewModel.baseURL)
                         .textFieldStyle(.roundedBorder)
                 }
 
@@ -133,7 +139,7 @@ private struct SettingsRootView: View {
                 GridRow {
                     Text("Model")
                         .frame(width: 96, alignment: .leading)
-                    TextField("gpt-4.1-mini", text: $viewModel.model)
+                    TextField(LLMConfiguration.bailianModel, text: $viewModel.model)
                         .textFieldStyle(.roundedBorder)
                 }
             }
@@ -144,6 +150,10 @@ private struct SettingsRootView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack {
+                Button("Use Bailian Defaults") {
+                    viewModel.applyBailianDefaults()
+                }
+
                 Spacer()
 
                 Button("Test") {
@@ -158,6 +168,6 @@ private struct SettingsRootView: View {
             }
         }
         .padding(20)
-        .frame(width: 520)
+        .frame(width: 560)
     }
 }

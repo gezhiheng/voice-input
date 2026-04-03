@@ -146,7 +146,11 @@ final class RecordingCoordinator: ObservableObject {
             panelController.showRefining()
 
             do {
-                finalText = try await textRefiner.refine(latestTranscript, configuration: llmSettings.llmConfiguration)
+                finalText = try await textRefiner.refine(
+                    latestTranscript,
+                    configuration: llmSettings.llmConfiguration,
+                    mode: llmSettings.llmRefinementMode
+                )
             } catch {
                 panelController.showStatus("LLM unavailable, using raw text…")
                 try? await Task.sleep(nanoseconds: 600_000_000)

@@ -43,6 +43,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var cancellables: Set<AnyCancellable> = []
     private var currentStatusSymbolName: String?
 
+    private var canUseStructuredRewrite: Bool {
+        let settings = settingsStore.settings
+        return settings.llmEnabled && settings.llmConfiguration.isConfigured
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
@@ -142,6 +147,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.setSubmenu(llmMenu, for: llmItem)
         menu.addItem(llmItem)
+
+        let structuredRewriteItem = NSMenuItem(
+            title: "Structured Rewrite",
+            action: #selector(toggleStructuredRewrite(_:)),
+            keyEquivalent: "s"
+        )
+        structuredRewriteItem.target = self
+        structuredRewriteItem.keyEquivalentModifierMask = [.command]
+        structuredRewriteItem.isEnabled = canUseStructuredRewrite
+        structuredRewriteItem.state = canUseStructuredRewrite && settingsStore.settings.llmRefinementMode == .structuredRewrite ? .on : .off
+        menu.addItem(structuredRewriteItem)
 
         let permissionsItem = NSMenuItem(
             title: "Permissions…",
@@ -244,6 +260,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc
     private func toggleLLMEnabled(_ sender: NSMenuItem) {
         settingsStore.updateLLMEnabled(!settingsStore.settings.llmEnabled)
+    }
+
+    @objc
+    private func toggleStructuredRewrite(_ sender: NSMenuItem) {
+        guard canUseStructuredRewrite else {
+            return
+        }
+
+        let isEnablingStructuredRewrite = settingsStore.settings.llmRefinementMode != .structuredRewrite
+        settingsStore.updateLLMRefinementMode(
+            isEnablingStructuredRewrite ? .structuredRewrite : .conservativeCorrection
+        )
     }
 
     @objc
