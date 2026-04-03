@@ -144,6 +144,55 @@ func llmRefinerUsesStructuredRewritePromptWhenRequested() async throws {
     #expect(messages[0]["content"]?.contains("口述内容整理助手") == true)
     #expect(messages[1]["content"]?.contains("总结、提炼并优化表达") == true)
 }
+
+@Test
+func transcriptAccumulatorKeepsLatinSegmentsSeparated() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("hello")
+    accumulator.commitActiveText()
+    accumulator.updateActiveText("world")
+
+    #expect(accumulator.combinedText == "hello world")
+}
+
+@Test
+func transcriptAccumulatorKeepsChineseSegmentsContinuous() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("你好")
+    accumulator.commitActiveText()
+    accumulator.updateActiveText("世界")
+
+    #expect(accumulator.combinedText == "你好世界")
+}
+
+@Test
+func transcriptAccumulatorAvoidsExtraSpaceAroundPunctuation() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("hello")
+    accumulator.commitActiveText()
+    accumulator.updateActiveText(", world")
+
+    #expect(accumulator.combinedText == "hello, world")
+}
+
+@Test
+func transcriptAccumulatorKeepsEarlierSpeechWhenPartialResetsAfterPause() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("我要讲一下项目计划")
+    accumulator.updateActiveText("项目计划第一点是本周先完成接口联调")
+
+    #expect(accumulator.combinedText == "我要讲一下项目计划第一点是本周先完成接口联调")
+}
+
+@Test
+func transcriptAccumulatorTreatsStrongPrefixMatchAsRevisionInsteadOfNewSegment() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("我们明天上午开会")
+    accumulator.updateActiveText("我们明天下午开会")
+
+    #expect(accumulator.combinedText == "我们明天下午开会")
+}
+
 @Test
 func cjkInputSourceDetectionMatchesLanguagesAndInputMethods() {
     let chinese = InputSourceDescriptor(id: "zh", languages: ["zh-Hans"], sourceType: "TISTypeKeyboardInputMethodModeEnabled", isASCII: false)
@@ -168,6 +217,7 @@ func audioLevelMeterAppliesSmoothingAndKeepsBarsVisible() {
     #expect(levels[2] > levels[0])
     #expect(levels.allSatisfy { $0 >= 0.07 })
 }
+
 @Test
 func floatingPanelViewModelKeepsShortTextVisible() async {
     await MainActor.run {
@@ -193,18 +243,69 @@ func floatingPanelViewModelUsesLeadingEllipsisForLongText() async {
         #expect(viewModel.displayedText.count < text.count)
     }
 }
+
+@Test
+func textInjectorRestoresClipboardAndInputSource() async throws {
+    let clipboard = MockClipboard()
+    let inputSource = MockInputSourceManager()
+    let injector = TextInjector(clipboard: clipboard, inputSourceManager: inputSource, pastePerformer: {})
+
+    try await injector.inject(text: "你好 world")
+
+    #expect(clipboard.restoredSnapshots == [PasteboardSnapshot(items: [PasteboardSnapshot.Item(dataByType: ["public.utf8-plain-text": Data("before".utf8)])])])
+    #expect(inputSource.selectedIDs == ["ascii", "cjk"])
+    #expect(clipboard.replacedText == "你好 world")
+}
+
+@Test
+func textInjectorRunsClipboardAndInputSourceWorkOnMainThread() async throws {
+    let clipboard = ThreadRecordingClipboard()
+    let inputSource = ThreadRecordingInputSourceManager()
+    let injector = TextInjector(clipboard: clipboard, inputSourceManager: inputSource, pastePerformer: {})
+
+    try await injector.inject(text: "hello")
+
+    #expect(clipboard.snapshotWasOnMainThread)
+    #expect(clipboard.replaceWasOnMainThread)
+    #expect(clipboard.restoreWasOnMainThread)
+    #expect(inputSource.currentWasOnMainThread)
+    #expect(inputSource.asciiWasOnMainThread)
+    #expect(inputSource.selectCallThreads == [true, true])
+}
+
+@Test
+func textInjectorMarshalsClipboardAndInputSourceWorkToMainThreadFromDetachedTask() async throws {
+    let clipboard = ThreadRecordingClipboard()
+    let inputSource = ThreadRecordingInputSourceManager()
+    let injector = TextInjector(clipboard: clipboard, inputSourceManager: inputSource, pastePerformer: {})
+
+    try await Task.detached {
+        try await injector.inject(text: "hello")
+    }.value
+
+    #expect(clipboard.snapshotWasOnMainThread)
+    #expect(clipboard.replaceWasOnMainThread)
+    #expect(clipboard.restoreWasOnMainThread)
+    #expect(inputSource.currentWasOnMainThread)
+    #expect(inputSource.asciiWasOnMainThread)
+    #expect(inputSource.selectCallThreads == [true, true])
+}
+
 private final class MockClipboard: ClipboardManaging {
     private(set) var replacedText: String = ""
     private(set) var restoredSnapshots: [PasteboardSnapshot] = []
 
+    @MainActor
     func snapshot() -> PasteboardSnapshot {
         PasteboardSnapshot(items: [.init(dataByType: ["public.utf8-plain-text": Data("before".utf8)])])
     }
 
+    @MainActor
     func replaceContents(with text: String) throws {
         replacedText = text
     }
 
+    @MainActor
     func restore(from snapshot: PasteboardSnapshot) {
         restoredSnapshots.append(snapshot)
     }
@@ -213,6 +314,7 @@ private final class MockClipboard: ClipboardManaging {
 private final class MockInputSourceManager: InputSourceManaging {
     private(set) var selectedIDs: [String] = []
 
+    @MainActor
     func currentInputSource() -> InputSourceDescriptor? {
         InputSourceDescriptor(
             id: "cjk",
@@ -222,6 +324,7 @@ private final class MockInputSourceManager: InputSourceManaging {
         )
     }
 
+    @MainActor
     func asciiCapableInputSource() -> InputSourceDescriptor? {
         InputSourceDescriptor(
             id: "ascii",
@@ -231,11 +334,69 @@ private final class MockInputSourceManager: InputSourceManaging {
         )
     }
 
+    @MainActor
     func selectInputSource(withID id: String) -> Bool {
         selectedIDs.append(id)
         return true
     }
 }
+
+private final class ThreadRecordingClipboard: ClipboardManaging {
+    private(set) var snapshotWasOnMainThread = false
+    private(set) var replaceWasOnMainThread = false
+    private(set) var restoreWasOnMainThread = false
+
+    @MainActor
+    func snapshot() -> PasteboardSnapshot {
+        snapshotWasOnMainThread = Thread.isMainThread
+        return PasteboardSnapshot(items: [])
+    }
+
+    @MainActor
+    func replaceContents(with text: String) throws {
+        replaceWasOnMainThread = Thread.isMainThread
+    }
+
+    @MainActor
+    func restore(from snapshot: PasteboardSnapshot) {
+        restoreWasOnMainThread = Thread.isMainThread
+    }
+}
+
+private final class ThreadRecordingInputSourceManager: InputSourceManaging {
+    private(set) var currentWasOnMainThread = false
+    private(set) var asciiWasOnMainThread = false
+    private(set) var selectCallThreads: [Bool] = []
+
+    @MainActor
+    func currentInputSource() -> InputSourceDescriptor? {
+        currentWasOnMainThread = Thread.isMainThread
+        return InputSourceDescriptor(
+            id: "cjk",
+            languages: ["zh-Hans"],
+            sourceType: "TISTypeKeyboardInputMethodModeEnabled",
+            isASCII: false
+        )
+    }
+
+    @MainActor
+    func asciiCapableInputSource() -> InputSourceDescriptor? {
+        asciiWasOnMainThread = Thread.isMainThread
+        return InputSourceDescriptor(
+            id: "ascii",
+            languages: ["en"],
+            sourceType: "TISTypeKeyboardLayout",
+            isASCII: true
+        )
+    }
+
+    @MainActor
+    func selectInputSource(withID id: String) -> Bool {
+        selectCallThreads.append(Thread.isMainThread)
+        return true
+    }
+}
+
 private final class RequestBox: @unchecked Sendable {
     var request: URLRequest?
 }
@@ -334,52 +495,3 @@ private func requestBody(from request: URLRequest) -> Data? {
 
     return data
 }
-
-@Test
-func transcriptAccumulatorKeepsLatinSegmentsSeparated() {
-    var accumulator = TranscriptAccumulator()
-    accumulator.updateActiveText("hello")
-    accumulator.commitActiveText()
-    accumulator.updateActiveText("world")
-
-    #expect(accumulator.combinedText == "hello world")
-}
-
-@Test
-func transcriptAccumulatorKeepsChineseSegmentsContinuous() {
-    var accumulator = TranscriptAccumulator()
-    accumulator.updateActiveText("你好")
-    accumulator.commitActiveText()
-    accumulator.updateActiveText("世界")
-
-    #expect(accumulator.combinedText == "你好世界")
-}
-
-@Test
-func transcriptAccumulatorAvoidsExtraSpaceAroundPunctuation() {
-    var accumulator = TranscriptAccumulator()
-    accumulator.updateActiveText("hello")
-    accumulator.commitActiveText()
-    accumulator.updateActiveText(", world")
-
-    #expect(accumulator.combinedText == "hello, world")
-}
-
-@Test
-func transcriptAccumulatorKeepsEarlierSpeechWhenPartialResetsAfterPause() {
-    var accumulator = TranscriptAccumulator()
-    accumulator.updateActiveText("我要讲一下项目计划")
-    accumulator.updateActiveText("项目计划第一点是本周先完成接口联调")
-
-    #expect(accumulator.combinedText == "我要讲一下项目计划第一点是本周先完成接口联调")
-}
-
-@Test
-func transcriptAccumulatorTreatsStrongPrefixMatchAsRevisionInsteadOfNewSegment() {
-    var accumulator = TranscriptAccumulator()
-    accumulator.updateActiveText("我们明天上午开会")
-    accumulator.updateActiveText("我们明天下午开会")
-
-    #expect(accumulator.combinedText == "我们明天下午开会")
-}
-

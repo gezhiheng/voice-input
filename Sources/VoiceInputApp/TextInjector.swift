@@ -22,17 +22,28 @@ final class TextInjector {
             return
         }
 
-        let snapshot = clipboard.snapshot()
-        let currentSource = inputSourceManager.currentInputSource()
-        let originalSourceID = currentSource?.id
-        let shouldSwitchToASCII = currentSource.map(InputSourceManager.isCJKSensitive) ?? false
-        let asciiSourceID = shouldSwitchToASCII ? inputSourceManager.asciiCapableInputSource()?.id : nil
+        let initialState = await MainActor.run { () -> (PasteboardSnapshot, String?, String?) in
+            let snapshot = clipboard.snapshot()
+            let currentSource = inputSourceManager.currentInputSource()
+            let originalSourceID = currentSource?.id
+            let shouldSwitchToASCII = currentSource.map(InputSourceManager.isCJKSensitive) ?? false
+            let asciiSourceID = shouldSwitchToASCII ? inputSourceManager.asciiCapableInputSource()?.id : nil
+            return (snapshot, originalSourceID, asciiSourceID)
+        }
+
+        let snapshot = initialState.0
+        let originalSourceID = initialState.1
+        let asciiSourceID = initialState.2
 
         do {
-            try clipboard.replaceContents(with: trimmed)
+            try await MainActor.run {
+                try clipboard.replaceContents(with: trimmed)
+            }
 
             if let asciiSourceID, asciiSourceID != originalSourceID {
-                _ = inputSourceManager.selectInputSource(withID: asciiSourceID)
+                await MainActor.run {
+                    _ = inputSourceManager.selectInputSource(withID: asciiSourceID)
+                }
                 try await Task.sleep(nanoseconds: 80_000_000)
             }
 
@@ -41,17 +52,25 @@ final class TextInjector {
 
             if let originalSourceID, let asciiSourceID, asciiSourceID != originalSourceID {
                 try await Task.sleep(nanoseconds: 80_000_000)
-                _ = inputSourceManager.selectInputSource(withID: originalSourceID)
+                await MainActor.run {
+                    _ = inputSourceManager.selectInputSource(withID: originalSourceID)
+                }
             }
         } catch {
             if let originalSourceID, let asciiSourceID, asciiSourceID != originalSourceID {
-                _ = inputSourceManager.selectInputSource(withID: originalSourceID)
+                await MainActor.run {
+                    _ = inputSourceManager.selectInputSource(withID: originalSourceID)
+                }
             }
-            clipboard.restore(from: snapshot)
+            await MainActor.run {
+                clipboard.restore(from: snapshot)
+            }
             throw error
         }
 
-        clipboard.restore(from: snapshot)
+        await MainActor.run {
+            clipboard.restore(from: snapshot)
+        }
     }
 
     static func defaultPastePerformer() throws {

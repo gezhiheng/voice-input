@@ -2,6 +2,7 @@ import Carbon
 import Foundation
 
 final class InputSourceManager: InputSourceManaging {
+    @MainActor
     func currentInputSource() -> InputSourceDescriptor? {
         guard let unmanaged = TISCopyCurrentKeyboardInputSource() else {
             return nil
@@ -11,6 +12,7 @@ final class InputSourceManager: InputSourceManaging {
         return descriptor(for: source)
     }
 
+    @MainActor
     func asciiCapableInputSource() -> InputSourceDescriptor? {
         guard let unmanaged = TISCopyCurrentASCIICapableKeyboardInputSource() else {
             return nil
@@ -20,6 +22,7 @@ final class InputSourceManager: InputSourceManaging {
         return descriptor(for: source)
     }
 
+    @MainActor
     func selectInputSource(withID id: String) -> Bool {
         let properties = [kTISPropertyInputSourceID as String: id] as CFDictionary
 

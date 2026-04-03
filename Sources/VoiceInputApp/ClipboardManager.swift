@@ -16,6 +16,7 @@ final class PasteboardClipboardManager: ClipboardManaging {
         self.pasteboard = pasteboard
     }
 
+    @MainActor
     func snapshot() -> PasteboardSnapshot {
         var items: [PasteboardSnapshot.Item] = []
         if let pasteboardItems = pasteboard.pasteboardItems {
@@ -33,6 +34,7 @@ final class PasteboardClipboardManager: ClipboardManaging {
         return PasteboardSnapshot(items: items)
     }
 
+    @MainActor
     func replaceContents(with text: String) throws {
         pasteboard.clearContents()
         guard pasteboard.setString(text, forType: .string) else {
@@ -40,6 +42,7 @@ final class PasteboardClipboardManager: ClipboardManaging {
         }
     }
 
+    @MainActor
     func restore(from snapshot: PasteboardSnapshot) {
         pasteboard.clearContents()
 
