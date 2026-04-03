@@ -309,3 +309,52 @@ private func requestBody(from request: URLRequest) -> Data? {
 
     return data
 }
+
+@Test
+func transcriptAccumulatorKeepsLatinSegmentsSeparated() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("hello")
+    accumulator.commitActiveText()
+    accumulator.updateActiveText("world")
+
+    #expect(accumulator.combinedText == "hello world")
+}
+
+@Test
+func transcriptAccumulatorKeepsChineseSegmentsContinuous() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("你好")
+    accumulator.commitActiveText()
+    accumulator.updateActiveText("世界")
+
+    #expect(accumulator.combinedText == "你好世界")
+}
+
+@Test
+func transcriptAccumulatorAvoidsExtraSpaceAroundPunctuation() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("hello")
+    accumulator.commitActiveText()
+    accumulator.updateActiveText(", world")
+
+    #expect(accumulator.combinedText == "hello, world")
+}
+
+@Test
+func transcriptAccumulatorKeepsEarlierSpeechWhenPartialResetsAfterPause() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("我要讲一下项目计划")
+    accumulator.updateActiveText("项目计划第一点是本周先完成接口联调")
+
+    #expect(accumulator.combinedText == "我要讲一下项目计划第一点是本周先完成接口联调")
+}
+
+@Test
+func transcriptAccumulatorTreatsStrongPrefixMatchAsRevisionInsteadOfNewSegment() {
+    var accumulator = TranscriptAccumulator()
+    accumulator.updateActiveText("我们明天上午开会")
+    accumulator.updateActiveText("我们明天下午开会")
+
+    #expect(accumulator.combinedText == "我们明天下午开会")
+}
+
