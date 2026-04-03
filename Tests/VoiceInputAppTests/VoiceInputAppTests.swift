@@ -168,6 +168,31 @@ func audioLevelMeterAppliesSmoothingAndKeepsBarsVisible() {
     #expect(levels[2] > levels[0])
     #expect(levels.allSatisfy { $0 >= 0.07 })
 }
+@Test
+func floatingPanelViewModelKeepsShortTextVisible() async {
+    await MainActor.run {
+        let viewModel = FloatingPanelViewModel()
+        let text = "短句测试"
+
+        viewModel.updateText(text)
+
+        #expect(viewModel.displayedText == text)
+    }
+}
+
+@Test
+func floatingPanelViewModelUsesLeadingEllipsisForLongText() async {
+    await MainActor.run {
+        let viewModel = FloatingPanelViewModel()
+        let text = String(repeating: "前文内容，", count: 20) + "最后这句必须可见"
+
+        viewModel.updateText(text)
+
+        #expect(viewModel.displayedText.first == "…")
+        #expect(viewModel.displayedText.contains("最后这句必须可见"))
+        #expect(viewModel.displayedText.count < text.count)
+    }
+}
 private final class MockClipboard: ClipboardManaging {
     private(set) var replacedText: String = ""
     private(set) var restoredSnapshots: [PasteboardSnapshot] = []

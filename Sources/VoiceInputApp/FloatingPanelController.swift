@@ -15,8 +15,8 @@ final class FloatingPanelViewModel: ObservableObject {
 
     func updateText(_ text: String) {
         let value = text.isEmpty ? "Listening…" : text
-        displayedText = value
-        textWidth = measuredWidth(for: value)
+        displayedText = visibleText(for: value)
+        textWidth = measuredWidth(for: displayedText)
     }
 
     func updateWaveform(_ levels: [Double]) {
@@ -24,11 +24,35 @@ final class FloatingPanelViewModel: ObservableObject {
     }
 
     func measuredWidth(for text: String) -> CGFloat {
+        min(max(rawMeasuredWidth(for: text) + 4, minimumTextWidth), maximumTextWidth)
+    }
+
+    func visibleText(for text: String) -> String {
+        guard rawMeasuredWidth(for: text) + 4 >= maximumTextWidth else {
+            return text
+        }
+
+        let ellipsis = "…"
+        var visibleSuffix = text
+
+        while !visibleSuffix.isEmpty {
+            let candidate = ellipsis + visibleSuffix
+            let candidateWidth = rawMeasuredWidth(for: candidate) + 4
+            if candidateWidth <= maximumTextWidth || visibleSuffix.count == 1 {
+                return candidate
+            }
+
+            visibleSuffix.removeFirst()
+        }
+
+        return ellipsis
+    }
+
+    private func rawMeasuredWidth(for text: String) -> CGFloat {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 17, weight: .semibold)
         ]
-        let measured = (text as NSString).size(withAttributes: attributes).width
-        return min(max(measured + 4, minimumTextWidth), maximumTextWidth)
+        return (text as NSString).size(withAttributes: attributes).width
     }
 
     var panelWidth: CGFloat {
@@ -215,7 +239,7 @@ private struct FloatingHUDRootView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.92))
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .truncationMode(.head)
                     .frame(width: viewModel.textWidth, alignment: .leading)
                     .animation(.easeInOut(duration: 0.25), value: viewModel.textWidth)
             }
