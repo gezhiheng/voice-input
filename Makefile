@@ -4,6 +4,8 @@ PRODUCT_NAME ?= VoiceInput
 BUILD_CONFIGURATION ?= release
 DIST_DIR ?= dist
 ICON_NAME ?= AppIcon
+VERSION_FILE ?= VERSION
+APP_VERSION := $(strip $(shell test -f "$(VERSION_FILE)" && cat "$(VERSION_FILE)"))
 APP_BUNDLE := $(DIST_DIR)/$(APP_NAME).app
 BIN_PATH := $(shell swift build -c $(BUILD_CONFIGURATION) --show-bin-path)
 EXECUTABLE_PATH := $(BIN_PATH)/$(PRODUCT_NAME)
@@ -13,7 +15,7 @@ DEFAULT_SIGNING_IDENTITY := $(shell security find-identity -p codesigning -v 2>/
 SIGNING_IDENTITY ?= $(DEFAULT_SIGNING_IDENTITY)
 SIGNING_IDENTITY_EFFECTIVE := $(if $(strip $(SIGNING_IDENTITY)),$(SIGNING_IDENTITY),-)
 
-.PHONY: build run install clean
+.PHONY: build run install clean release
 
 build:
 	swift build -c $(BUILD_CONFIGURATION)
@@ -42,13 +44,17 @@ build:
 	plutil -insert CFBundleInfoDictionaryVersion -string 6.0 "$(APP_BUNDLE)/Contents/Info.plist"
 	plutil -insert CFBundleName -string "$(APP_NAME)" "$(APP_BUNDLE)/Contents/Info.plist"
 	plutil -insert CFBundlePackageType -string APPL "$(APP_BUNDLE)/Contents/Info.plist"
-	plutil -insert CFBundleShortVersionString -string 1.0 "$(APP_BUNDLE)/Contents/Info.plist"
-	plutil -insert CFBundleVersion -string 1 "$(APP_BUNDLE)/Contents/Info.plist"
+	plutil -insert CFBundleShortVersionString -string "$(APP_VERSION)" "$(APP_BUNDLE)/Contents/Info.plist"
+	plutil -insert CFBundleVersion -string "$(APP_VERSION)" "$(APP_BUNDLE)/Contents/Info.plist"
 	plutil -insert LSMinimumSystemVersion -string 14.0 "$(APP_BUNDLE)/Contents/Info.plist"
 	plutil -insert LSUIElement -bool YES "$(APP_BUNDLE)/Contents/Info.plist"
 	plutil -insert NSMicrophoneUsageDescription -string "VoiceInput records speech while Fn is held." "$(APP_BUNDLE)/Contents/Info.plist"
 	plutil -insert NSSpeechRecognitionUsageDescription -string "VoiceInput converts your speech to text for injection into the active field." "$(APP_BUNDLE)/Contents/Info.plist"
 	codesign --force --deep --sign "$(SIGNING_IDENTITY_EFFECTIVE)" --timestamp=none "$(APP_BUNDLE)"
+
+release:
+	chmod +x scripts/github-release.sh
+	scripts/github-release.sh
 
 run: build
 	open "$(APP_BUNDLE)"
