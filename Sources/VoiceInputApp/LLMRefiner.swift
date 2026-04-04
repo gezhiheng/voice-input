@@ -86,6 +86,7 @@ final class LLMRefiner: TextRefining {
         }
 
         let endpoint = try normalizedEndpoint(from: configuration.baseURL)
+        let enforceEnglishOutput = isPureEnglishInput(userText)
 
         let body = ChatCompletionRequest(
             model: configuration.model,
@@ -93,8 +94,8 @@ final class LLMRefiner: TextRefining {
             seed: 1234,
             enableThinking: false,
             messages: [
-                .init(role: "system", content: systemPrompt(for: mode)),
-                .init(role: "user", content: userPrompt(for: userText, mode: mode))
+                .init(role: "system", content: systemPrompt(for: mode, enforceEnglishOutput: enforceEnglishOutput)),
+                .init(role: "user", content: userPrompt(for: userText, mode: mode, enforceEnglishOutput: enforceEnglishOutput))
             ]
         )
 
@@ -119,10 +120,24 @@ final class LLMRefiner: TextRefining {
         return content
     }
 
-    private func systemPrompt(for mode: LLMRefinementMode) -> String {
+    private func systemPrompt(for mode: LLMRefinementMode, enforceEnglishOutput: Bool) -> String {
         switch mode {
         case .conservativeCorrection:
-            """
+            if enforceEnglishOutput {
+                return """
+                You are a speech transcription correction assistant.
+                Your only task is to fix obvious recognition errors in the transcript and return corrected text.
+
+                Follow these rules strictly:
+                1. Fix only obvious errors. Do not rewrite, expand, summarize, or add extra details.
+                2. Keep the original meaning, order, tone, punctuation, spacing, and line breaks whenever possible.
+                3. If uncertain, keep the original wording.
+                4. Because the original transcript is pure English, the output must be pure English as well.
+                5. Return corrected text only, with no explanations, prefixes, quotes, or code blocks.
+                """
+            }
+
+            return """
             你是语音识别纠错器。
             你的唯一任务是修正语音转写文本中的明显识别错误，并返回修正后的文本。
 
@@ -139,7 +154,22 @@ final class LLMRefiner: TextRefining {
             - type script -> TypeScript（仅在上下文明确时）
             """
         case .structuredRewrite:
-            """
+            if enforceEnglishOutput {
+                return """
+                You are a spoken-content rewriting assistant.
+                Your task is to reorganize and polish long dictated text so it is clearer and easier to read.
+
+                Follow these rules strictly:
+                1. Preserve original meaning and key information. Do not invent facts.
+                2. Remove clear repetition and filler words when helpful, without losing core content.
+                3. Improve structure, punctuation, sentence boundaries, and paragraphing for clarity.
+                4. Use short paragraphs or bullet points only when the original content is list-like; otherwise prefer natural short paragraphs.
+                5. Because the original transcript is pure English, the output must be pure English as well.
+                6. Return only the rewritten text body with no explanations, no title prefixes, and no code blocks.
+                """
+            }
+
+            return """
             你是口述内容整理助手。
             你的任务是将用户的一大段口述内容整理得更有条理、更易读、更适合直接发送或记录。
 
@@ -153,10 +183,22 @@ final class LLMRefiner: TextRefining {
         }
     }
 
-    private func userPrompt(for text: String, mode: LLMRefinementMode) -> String {
+    private func userPrompt(for text: String, mode: LLMRefinementMode, enforceEnglishOutput: Bool) -> String {
         switch mode {
         case .conservativeCorrection:
-            """
+            if enforceEnglishOutput {
+                return """
+                The following content is a raw transcript from macOS voice input. Please only fix obvious recognition errors.
+                If uncertain, keep the original wording.
+                Return corrected text only.
+                The output must remain pure English.
+
+                Raw transcript:
+                \(text)
+                """
+            }
+
+            return """
             以下内容来自 macOS 语音输入的原始转写，请只修正明显识别错误。
             如果不确定，请保留原文。
             只返回修正后的文本。
@@ -165,7 +207,19 @@ final class LLMRefiner: TextRefining {
             \(text)
             """
         case .structuredRewrite:
-            """
+            if enforceEnglishOutput {
+                return """
+                The following content is a raw transcript from macOS voice input. Please rewrite it to be clearer, more structured, and directly usable.
+                Preserve original meaning and key details, and do not invent facts.
+                Return rewritten text only.
+                The output must remain pure English.
+
+                Raw transcript:
+                \(text)
+                """
+            }
+
+            return """
             以下内容来自 macOS 语音输入的原始转写，请总结、提炼并优化表达，使其更有条理、更适合直接使用。
             保留原意和关键信息，不要凭空补充事实。
             只返回整理后的正文。
@@ -174,6 +228,27 @@ final class LLMRefiner: TextRefining {
             \(text)
             """
         }
+    }
+
+    private func isPureEnglishInput(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+
+        guard trimmed.range(of: "[A-Za-z]", options: .regularExpression) != nil else {
+            return false
+        }
+
+        for scalar in trimmed.unicodeScalars {
+            if scalar.isASCII {
+                continue
+            }
+
+            return false
+        }
+
+        return true
     }
 }
 

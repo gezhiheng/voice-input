@@ -184,6 +184,96 @@ func llmRefinerUsesStructuredRewritePromptWhenRequested() async throws {
 }
 
 @Test
+func llmRefinerForcesEnglishOutputForPureEnglishCorrectionInput() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [EnglishCorrectionMockURLProtocol.self]
+
+    let requestBox = RequestBox()
+    EnglishCorrectionMockURLProtocol.requestHandler = { request in
+        requestBox.request = request
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        let data = Data(#"{"choices":[{"message":{"content":"Please open the pull request and tag the API owner."}}]}"#.utf8)
+        return (response, data)
+    }
+
+    defer {
+        EnglishCorrectionMockURLProtocol.requestHandler = nil
+    }
+
+    let refiner = LLMRefiner(session: URLSession(configuration: configuration))
+    let refined = try await refiner.refine(
+        "please open the pool request and tag the ap i owner",
+        configuration: LLMConfiguration(
+            baseURL: LLMConfiguration.bailianBaseURL,
+            apiKey: "test-key",
+            model: LLMConfiguration.bailianModel
+        ),
+        mode: .conservativeCorrection
+    )
+
+    #expect(refined == "Please open the pull request and tag the API owner.")
+
+    let request = try #require(requestBox.request)
+    let body = try #require(requestBody(from: request))
+    let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let messages = try #require(payload["messages"] as? [[String: String]])
+
+    #expect(messages[0]["content"]?.contains("pure English") == true)
+    #expect(messages[1]["content"]?.contains("Raw transcript") == true)
+    #expect(messages[1]["content"]?.contains("must remain pure English") == true)
+}
+
+@Test
+func llmRefinerForcesEnglishOutputForPureEnglishRewriteInput() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [EnglishRewriteMockURLProtocol.self]
+
+    let requestBox = RequestBox()
+    EnglishRewriteMockURLProtocol.requestHandler = { request in
+        requestBox.request = request
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        let data = Data(#"{"choices":[{"message":{"content":"- Finalize timeline by Friday\n- Share blockers in a separate section"}}]}"#.utf8)
+        return (response, data)
+    }
+
+    defer {
+        EnglishRewriteMockURLProtocol.requestHandler = nil
+    }
+
+    let refiner = LLMRefiner(session: URLSession(configuration: configuration))
+    let refined = try await refiner.refine(
+        "first i need to finalize the timeline by friday and second i should share blockers in a separate section",
+        configuration: LLMConfiguration(
+            baseURL: LLMConfiguration.bailianBaseURL,
+            apiKey: "test-key",
+            model: LLMConfiguration.bailianModel
+        ),
+        mode: .structuredRewrite
+    )
+
+    #expect(refined == "- Finalize timeline by Friday\n- Share blockers in a separate section")
+
+    let request = try #require(requestBox.request)
+    let body = try #require(requestBody(from: request))
+    let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let messages = try #require(payload["messages"] as? [[String: String]])
+
+    #expect(messages[0]["content"]?.contains("pure English") == true)
+    #expect(messages[1]["content"]?.contains("Raw transcript") == true)
+    #expect(messages[1]["content"]?.contains("must remain pure English") == true)
+}
+
+@Test
 func transcriptAccumulatorKeepsLatinSegmentsSeparated() {
     var accumulator = TranscriptAccumulator()
     accumulator.updateActiveText("hello")
@@ -482,6 +572,64 @@ private final class StructuredRewriteMockURLProtocol: URLProtocol, @unchecked Se
     override func startLoading() {
         guard let handler = Self.requestHandler else {
             fatalError("StructuredRewriteMockURLProtocol.requestHandler must be set before use.")
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private final class EnglishCorrectionMockURLProtocol: URLProtocol, @unchecked Sendable {
+    static var requestHandler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            fatalError("EnglishCorrectionMockURLProtocol.requestHandler must be set before use.")
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private final class EnglishRewriteMockURLProtocol: URLProtocol, @unchecked Sendable {
+    static var requestHandler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            fatalError("EnglishRewriteMockURLProtocol.requestHandler must be set before use.")
         }
 
         do {
