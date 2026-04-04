@@ -220,8 +220,8 @@ private struct FloatingHUDRootView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.035),
-                            Color.black.opacity(0.055)
+                            Color.white.opacity(0.06),
+                            Color.black.opacity(0.11)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
