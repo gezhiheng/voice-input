@@ -91,12 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func configureEventMonitor() {
-        fnKeyMonitor.onPress = { [weak self] in
-            self?.recordingCoordinator.handleFnPressed()
-        }
-
-        fnKeyMonitor.onRelease = { [weak self] in
-            self?.recordingCoordinator.handleFnReleased()
+        fnKeyMonitor.onToggle = { [weak self] in
+            self?.recordingCoordinator.toggleRecording()
         }
 
         fnKeyMonitor.start()

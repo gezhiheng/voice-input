@@ -13,8 +13,8 @@ final class RecordingCoordinator: ObservableObject {
     private let textRefiner: TextRefining
     private let showPermissionsWindow: () -> Void
 
-    private var isFnPressed = false
     private var isHandlingSession = false
+    private var isRecording = false
     private var latestTranscript = ""
 
     init(
@@ -35,27 +35,15 @@ final class RecordingCoordinator: ObservableObject {
         self.showPermissionsWindow = showPermissionsWindow
     }
 
-    func handleFnPressed() {
-        guard !isFnPressed else {
-            return
-        }
-
-        isFnPressed = true
-
-        Task {
-            await beginRecording()
-        }
-    }
-
-    func handleFnReleased() {
-        guard isFnPressed else {
-            return
-        }
-
-        isFnPressed = false
-
-        Task {
-            await finalizeRecording()
+    func toggleRecording() {
+        if isRecording {
+            Task {
+                await finalizeRecording()
+            }
+        } else {
+            Task {
+                await beginRecording()
+            }
         }
     }
 
@@ -65,7 +53,7 @@ final class RecordingCoordinator: ObservableObject {
         latestTranscript = ""
         phase = .idle
         isHandlingSession = false
-        isFnPressed = false
+        isRecording = false
     }
 
     private func beginRecording() async {
@@ -86,6 +74,7 @@ final class RecordingCoordinator: ObservableObject {
         }
 
         isHandlingSession = true
+        isRecording = true
         latestTranscript = ""
         phase = .listening
         panelController.showListening()
@@ -120,6 +109,8 @@ final class RecordingCoordinator: ObservableObject {
         guard isHandlingSession, phase == .listening else {
             return
         }
+
+        isRecording = false
 
         let transcript: String
         do {
@@ -181,6 +172,7 @@ final class RecordingCoordinator: ObservableObject {
         phase = .error(message)
         speechRecognizer.cancel()
         panelController.showStatus(message)
+        isRecording = false
         try? await Task.sleep(nanoseconds: 1_000_000_000)
         panelController.dismiss()
         phase = .idle

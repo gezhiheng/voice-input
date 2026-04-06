@@ -2,8 +2,7 @@ import ApplicationServices
 import Foundation
 
 final class FnKeyMonitor {
-    var onPress: (() -> Void)?
-    var onRelease: (() -> Void)?
+    var onToggle: (() -> Void)?
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -99,9 +98,7 @@ final class FnKeyMonitor {
         fnIsPressed = isPressed
 
         if isPressed {
-            onPress?()
-        } else {
-            onRelease?()
+            onToggle?()
         }
 
         return nil
