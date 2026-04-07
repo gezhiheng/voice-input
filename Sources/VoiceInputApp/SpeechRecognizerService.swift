@@ -372,6 +372,13 @@ final class SpeechRecognizerService: SpeechTranscribing {
             continuation.resume(throwing: error)
         }
     }
+    
+    private func resumeContinuationIfNeeded(with result: Result<String, Error>) {
+        guard finalContinuation != nil else {
+            return
+        }
+        resumeContinuation(with: result)
+    }
 
     private func cleanup() {
         recognitionTask = nil

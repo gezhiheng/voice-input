@@ -16,6 +16,9 @@ final class RecordingCoordinator: ObservableObject {
     private var isHandlingSession = false
     private var isRecording = false
     private var latestTranscript = ""
+    private var lastTranscriptUpdateTime: Date?
+    private var silenceCheckTask: Task<Void, Never>?
+    private static let silenceThreshold: TimeInterval = 2.5
 
     init(
         settingsStore: SettingsStore,
@@ -48,9 +51,11 @@ final class RecordingCoordinator: ObservableObject {
     }
 
     func cancel() {
+        stopSilenceCheck()
         speechRecognizer.cancel()
         panelController.dismiss()
         latestTranscript = ""
+        lastTranscriptUpdateTime = nil
         phase = .idle
         isHandlingSession = false
         isRecording = false
@@ -88,6 +93,7 @@ final class RecordingCoordinator: ObservableObject {
                             return
                         }
                         self.latestTranscript = text
+                        self.lastTranscriptUpdateTime = Date()
                         self.panelController.updateTranscript(text)
                     }
                 },
@@ -100,6 +106,9 @@ final class RecordingCoordinator: ObservableObject {
                     }
                 }
             )
+            
+            // 启动静音检测
+            startSilenceCheck()
         } catch {
             await presentError(error.localizedDescription)
         }
@@ -111,6 +120,10 @@ final class RecordingCoordinator: ObservableObject {
         }
 
         isRecording = false
+        stopSilenceCheck()
+
+        // 保存静音检测前已有的转写内容（作为后备）
+        let existingTranscript = latestTranscript
 
         let transcript: String
         do {
@@ -120,7 +133,15 @@ final class RecordingCoordinator: ObservableObject {
             return
         }
 
-        latestTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 如果 stop() 返回了有效内容，使用它；否则保留静音检测前已有的内容
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTranscript.isEmpty {
+            latestTranscript = trimmedTranscript
+        } else if !existingTranscript.isEmpty {
+            // 保留静音检测前已有的转写内容
+            latestTranscript = existingTranscript
+        }
+        lastTranscriptUpdateTime = nil
 
         guard !latestTranscript.isEmpty else {
             panelController.dismiss()
@@ -169,6 +190,7 @@ final class RecordingCoordinator: ObservableObject {
     }
 
     private func presentError(_ message: String) async {
+        stopSilenceCheck()
         phase = .error(message)
         speechRecognizer.cancel()
         panelController.showStatus(message)
@@ -177,6 +199,47 @@ final class RecordingCoordinator: ObservableObject {
         panelController.dismiss()
         phase = .idle
         latestTranscript = ""
+        lastTranscriptUpdateTime = nil
         isHandlingSession = false
+    }
+    
+    // MARK: - Silence Detection
+    
+    private func startSilenceCheck() {
+        stopSilenceCheck()
+        lastTranscriptUpdateTime = Date()
+        
+        silenceCheckTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms 检查一次
+                
+                guard let self = self else { return }
+                
+                // 必须在主线程访问状态
+                await MainActor.run {
+                    guard self.isHandlingSession,
+                          self.phase == .listening,
+                          let lastUpdate = self.lastTranscriptUpdateTime else {
+                        return
+                    }
+                    
+                    let elapsed = Date().timeIntervalSince(lastUpdate)
+                    if elapsed >= Self.silenceThreshold {
+                        // 静音超时，自动完成录音
+                        // 必须先标记，防止后续检查再次触发
+                        self.stopSilenceCheck()
+                        self.lastTranscriptUpdateTime = nil
+                        Task {
+                            await self.finalizeRecording()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func stopSilenceCheck() {
+        silenceCheckTask?.cancel()
+        silenceCheckTask = nil
     }
 }
