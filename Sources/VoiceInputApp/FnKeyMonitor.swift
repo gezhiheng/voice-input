@@ -33,7 +33,11 @@ final class FnKeyMonitor {
             return
         }
 
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            return
+        }
+        
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
 
@@ -53,6 +57,11 @@ final class FnKeyMonitor {
         eventTap = nil
         runLoopSource = nil
         fnIsPressed = false
+    }
+
+    func cleanup() {
+        stop()
+        onToggle = nil
     }
 
     static func canCreateProbeTap() -> Bool {

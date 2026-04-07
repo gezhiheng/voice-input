@@ -229,8 +229,8 @@ final class RecordingCoordinator: ObservableObject {
                         // 必须先标记，防止后续检查再次触发
                         self.stopSilenceCheck()
                         self.lastTranscriptUpdateTime = nil
-                        Task {
-                            await self.finalizeRecording()
+                        Task { [weak self] in
+                            await self?.finalizeRecording()
                         }
                     }
                 }

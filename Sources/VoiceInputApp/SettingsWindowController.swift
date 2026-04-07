@@ -55,21 +55,21 @@ final class SettingsWindowViewModel: ObservableObject {
         isTesting = true
         statusMessage = "Testing…"
 
-        Task {
+        Task { [weak self] in
             defer {
-                Task { @MainActor in
-                    self.isTesting = false
+                Task { @MainActor [weak self] in
+                    self?.isTesting = false
                 }
             }
 
             do {
-                try await textRefiner.testConnection(configuration: configuration)
+                try await self?.textRefiner.testConnection(configuration: configuration)
                 await MainActor.run {
-                    self.statusMessage = "Connection successful."
+                    self?.statusMessage = "Connection successful."
                 }
             } catch {
                 await MainActor.run {
-                    self.statusMessage = error.localizedDescription
+                    self?.statusMessage = error.localizedDescription
                 }
             }
         }

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -39,7 +40,7 @@ final class PermissionsWindowController: NSWindowController {
 
 private struct PermissionsRootView: View {
     @ObservedObject var coordinator: PermissionsCoordinator
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var cancellables = Set<AnyCancellable>()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -99,10 +100,20 @@ private struct PermissionsRootView: View {
         .frame(width: 520)
         .onAppear {
             coordinator.refresh()
+            setupTimer()
         }
-        .onReceive(timer) { _ in
-            coordinator.refresh()
+        .onDisappear {
+            cancellables.removeAll()
         }
+    }
+
+    private func setupTimer() {
+        Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak coordinator] _ in
+                coordinator?.refresh()
+            }
+            .store(in: &cancellables)
     }
 
     private func permissionRow(

@@ -72,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        fnKeyMonitor.stop()
+        fnKeyMonitor.cleanup()
         recordingCoordinator.cancel()
     }
 

@@ -199,6 +199,10 @@ final class SpeechRecognizerService: SpeechTranscribing {
                 return
             }
 
+            guard self.recognitionRequest === request else {
+                return
+            }
+
             request.append(buffer)
             self.process(buffer: buffer)
         }
@@ -371,13 +375,6 @@ final class SpeechRecognizerService: SpeechTranscribing {
         case .failure(let error):
             continuation.resume(throwing: error)
         }
-    }
-    
-    private func resumeContinuationIfNeeded(with result: Result<String, Error>) {
-        guard finalContinuation != nil else {
-            return
-        }
-        resumeContinuation(with: result)
     }
 
     private func cleanup() {

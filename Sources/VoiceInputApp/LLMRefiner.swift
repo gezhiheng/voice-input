@@ -16,6 +16,10 @@ final class LLMRefiner: TextRefining {
         }
     }
 
+    deinit {
+        session.invalidateAndCancel()
+    }
+
     func refine(
         _ text: String,
         configuration: LLMConfiguration,
